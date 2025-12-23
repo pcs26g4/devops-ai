@@ -1,0 +1,5 @@
+[2023-10-01 12:00:01] INFO: User login successful (ID: 102)
+[2023-10-01 12:05:22] ERROR: Database connection failed. Retrying in 5s...
+[2023-10-01 12:05:27] ERROR: Database connection failed again. Timeout.
+[2023-10-01 12:10:00] WARN: High memory usage detected (85%)
+[2023-10-01 12:15:45] INFO: System health check passed.

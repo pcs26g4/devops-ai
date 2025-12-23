@@ -1,0 +1,158 @@
+As a Site Reliability Engineer, creating robust and actionable Prometheus alerts is crucial for maintaining the health and reliability of a REST API service. Below are suggested alert rules covering high error rates, high latency, and pod restarts, using PromQL with production-ready thresholds and explanations.
+
+---
+
+**Prerequisites:**
+
+1.  **Application Metrics:** Your REST API service must expose Prometheus metrics. Common ways include:
+    *   Using a client library in your application (e.g., Micrometer for Java/Spring Boot, Prometheus client for Go/Python/Node.js).
+    *   Using an Nginx or Apache exporter if your API is behind one.
+    *   Ensure metrics like `http_requests_total` (with `status_code` and `method` labels) and `http_request_duration_seconds_bucket` (for histograms) are available.
+2.  **`kube-state-metrics`:** For Kubernetes-specific alerts like pod restarts, you need `kube-state-metrics` deployed in your cluster to expose metrics like `kube_pod_container_status_restarts_total`.
+3.  **Job and Namespace Labels:** These examples assume `job="my-api-service"` and `namespace="my-api-namespace"`. **Remember to replace these placeholders** with your actual service's job name and Kubernetes namespace.
+
+---
+
+## Prometheus Alert Rules for REST API Service
+
+Save these rules in a `.yaml` file (e.g., `api-alerts.yaml`) and ensure your Prometheus server is configured to load them.
+
+```yaml
+groups:
+  - name: rest-api-service-alerts
+    rules:
+      # --- HIGH ERROR RATE ALERT ---
+      - alert: ApiHighErrorRate
+        expr: |
+          sum by (job, namespace) (rate(http_requests_total{job="my-api-service", namespace="my-api-namespace", status_code=~"5.."}[5m]))
+          /
+          sum by (job, namespace) (rate(http_requests_total{job="my-api-service", namespace="my-api-namespace"}[5m]))
+          * 100
+          > 5 # 5% error rate threshold for critical
+        for: 2m
+        labels:
+          severity: critical
+          service: my-api-service
+          tier: production
+        annotations:
+          summary: "High 5xx error rate for {{ $labels.job }} in namespace {{ $labels.namespace }}"
+          description: |
+            The {{ $labels.job }} service is experiencing a high rate of 5xx errors ({{ printf "%.2f" $value }}%) over the last 5 minutes.
+            This indicates a critical issue likely within the application itself or its dependencies.
+            Affected service: {{ $labels.job }} (Namespace: {{ $labels.namespace }})
+            Action: Investigate application logs, dependency health, and recent deployments.
+          runbook: "https://my-company.com/runbooks/api-error-rate"
+
+      - alert: ApiElevatedErrorRate
+        expr: |
+          sum by (job, namespace) (rate(http_requests_total{job="my-api-service", namespace="my-api-namespace", status_code=~"5.."}[5m]))
+          /
+          sum by (job, namespace) (rate(http_requests_total{job="my-api-service", namespace="my-api-namespace"}[5m]))
+          * 100
+          > 1 # 1% error rate threshold for warning
+        for: 5m
+        labels:
+          severity: warning
+          service: my-api-service
+          tier: production
+        annotations:
+          summary: "Elevated 5xx error rate for {{ $labels.job }} in namespace {{ $labels.namespace }}"
+          description: |
+            The {{ $labels.job }} service has an elevated rate of 5xx errors ({{ printf "%.2f" $value }}%) over the last 5 minutes.
+            This might indicate a developing problem or a minor outage.
+            Affected service: {{ $labels.job }} (Namespace: {{ $labels.namespace }})
+            Action: Monitor the service closely. Check for any recent changes or minor dependency issues.
+          runbook: "https://my-company.com/runbooks/api-error-rate"
+
+      # --- HIGH LATENCY ALERT ---
+      # This assumes your application exposes a histogram metric like `http_request_duration_seconds_bucket`.
+      - alert: ApiHighLatencyP99
+        expr: |
+          histogram_quantile(0.99, sum by (le, job, namespace) (rate(http_request_duration_seconds_bucket{job="my-api-service", namespace="my-api-namespace"}[5m])))
+          > 1.0 # P99 latency > 1 second for critical
+        for: 2m
+        labels:
+          severity: critical
+          service: my-api-service
+          tier: production
+        annotations:
+          summary: "Critical P99 latency for {{ $labels.job }} in namespace {{ $labels.namespace }}"
+          description: |
+            The 99th percentile request duration for {{ $labels.job }} has been above 1 second (actual: {{ printf "%.2f" $value }}s) for the last 2 minutes.
+            This indicates a severe performance degradation affecting a significant portion of requests.
+            Affected service: {{ $labels.job }} (Namespace: {{ $labels.namespace }})
+            Action: Investigate resource utilization (CPU, memory, network, I/O), database performance, and external service dependencies.
+          runbook: "https://my-company.com/runbooks/api-latency"
+
+      - alert: ApiElevatedLatencyP90
+        expr: |
+          histogram_quantile(0.90, sum by (le, job, namespace) (rate(http_request_duration_seconds_bucket{job="my-api-service", namespace="my-api-namespace"}[5m])))
+          > 0.5 # P90 latency > 0.5 seconds for warning
+        for: 5m
+        labels:
+          severity: warning
+          service: my-api-service
+          tier: production
+        annotations:
+          summary: "Elevated P90 latency for {{ $labels.job }} in namespace {{ $labels.namespace }}"
+          description: |
+            The 90th percentile request duration for {{ $labels.job }} has been above 0.5 seconds (actual: {{ printf "%.2f" $value }}s) for the last 5 minutes.
+            This suggests a performance degradation that needs attention before it becomes critical.
+            Affected service: {{ $labels.job }} (Namespace: {{ $labels.namespace }})
+            Action: Check for increasing load, resource contention, or recent code changes impacting performance.
+          runbook: "https://my-company.com/runbooks/api-latency"
+
+      # --- POD RESTART ALERT ---
+      # Requires kube-state-metrics to be deployed in your Kubernetes cluster.
+      # Filters for pods belonging to a specific deployment/service by matching the pod name.
+      - alert: ApiPodRestarting
+        expr: |
+          sum by (pod, namespace) (increase(kube_pod_container_status_restarts_total{namespace="my-api-namespace", pod=~"my-api-service-deployment-.*"}[15m])) > 0
+        for: 5m # Give some grace period for a transient restart, but alert if it persists.
+        labels:
+          severity: critical
+          service: my-api-service
+          tier: production
+        annotations:
+          summary: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted unexpectedly."
+          description: |
+            One or more containers in pod {{ $labels.pod }} (part of {{ $labels.service }}) has restarted in the last 15 minutes.
+            Frequent restarts can indicate application crashes, OOMKill, misconfigurations, or liveness/readiness probe failures.
+            Affected pod: {{ $labels.pod }} (Namespace: {{ $labels.namespace }})
+            Action: Check pod logs (`kubectl logs {{ $labels.pod }} -n {{ $labels.namespace }}`), describe the pod (`kubectl describe pod {{ $labels.pod }} -n {{ $labels.namespace }}`) for events.
+          runbook: "https://my-company.com/runbooks/pod-restarts"
+```
+
+---
+
+### Explanation and Production-Ready Considerations:
+
+1.  **High Error Rate (`ApiHighErrorRate`, `ApiElevatedErrorRate`)**
+    *   **PromQL:** Calculates the percentage of 5xx status codes (server errors) out of total requests over a 5-minute window. `rate()` is used to get the per-second average for the time series. `sum by (job, namespace)` aggregates across all instances of your service in that namespace.
+    *   **Thresholds:**
+        *   **Critical:** `> 5%` for `2m`. A 5% error rate, sustained for 2 minutes, is a significant issue indicating widespread failures.
+        *   **Warning:** `> 1%` for `5m`. A 1% error rate, sustained for 5 minutes, warrants investigation. It might be a small but persistent issue, or a precursor to a larger problem.
+    *   **Why 5xx?** 5xx errors directly indicate server-side problems. 4xx errors are client-side issues (bad requests, unauthorized) and might not always warrant an alert unless your service *generates* too many unexpected 4xxs, which would indicate a problem with your API contract or validation. You can extend the regex `status_code=~"5..|400|401"` if certain 4xxs are critical for your service.
+    *   **`FOR` Clause:** Shorter `for` (e.g., `2m`) for critical alerts ensures faster notification, while a longer `for` (e.g., `5m`) for warnings prevents flapping for transient issues.
+
+2.  **High Latency (`ApiHighLatencyP99`, `ApiElevatedLatencyP90`)**
+    *   **PromQL:** Uses `histogram_quantile` to calculate the 99th (P99) and 90th (P90) percentiles of request durations over a 5-minute window. This gives a much better view of user experience than simple averages.
+    *   **Thresholds:**
+        *   **Critical (P99):** `> 1.0s` for `2m`. If 1% of your requests are taking over 1 second, users are experiencing significant slowness.
+        *   **Warning (P90):** `> 0.5s` for `5m`. If 10% of requests are taking over 0.5 seconds, it's a good time to start looking into performance.
+    *   **Why P99/P90?** Average latency can be misleading, as a few very fast requests can mask many slow ones. Percentiles give a more accurate picture of the user experience, focusing on the tail end of the latency distribution.
+    *   **Tuning:** These latency thresholds are illustrative. They **must** be tuned based on your service's specific Service Level Objectives (SLOs) and user expectations. A payment gateway might have much stricter latency SLOs (e.g., P99 < 100ms) than a background processing API.
+
+3.  **Pod Restart (`ApiPodRestarting`)**
+    *   **PromQL:** Uses `increase()` on `kube_pod_container_status_restarts_total` over a 15-minute window. If any container within a pod belonging to `my-api-service-deployment` (adjust regex to match your deployment's pod names) has restarted, the expression will be `> 0`.
+    *   **Thresholds:** `> 0` for `5m`. Any unexpected pod restart in a production environment is generally considered critical. The `for: 5m` gives a small grace period for self-healing, but it will fire if the restart is persistent or immediate. The `[15m]` in `increase` ensures we catch restarts that happened within that longer window.
+    *   **Why critical?** Pod restarts can indicate application crashes, memory leaks (OOMKilled), misconfigurations, or issues with liveness/readiness probes. These often lead to service instability.
+    *   **Pod Name Regex:** Make sure the `pod=~"my-api-service-deployment-.*"` regex accurately targets the pods of your specific deployment. A common pattern for deployments is `[deployment-name]-[replica-set-hash]-[pod-hash]`.
+
+### Important Notes:
+
+*   **Customization:** Remember to replace `my-api-service`, `my-api-namespace`, and the `pod=~"..."` regex with your actual values.
+*   **Runbooks:** The `runbook` annotation should point to internal documentation for incident response.
+*   **Alerting Tool:** These rules are designed for Prometheus. You'll need Alertmanager configured to route these alerts to your preferred notification channels (PagerDuty, Slack, email, etc.).
+*   **Context in Notifications:** The `summary` and `description` annotations are crucial for providing immediate context to the on-call engineer. Use template variables like `{{ $labels.job }}` and `{{ printf "%.2f" $value }}` to inject specific details into the alert message.
+*   **Refinement:** After deploying these, monitor them closely. You may need to fine-tune `for` durations and thresholds based on your service's specific behavior and operational cadence. False positives should be minimized, but false negatives are worse for critical systems.
