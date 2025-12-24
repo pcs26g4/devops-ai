@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -54,4 +55,62 @@ spec:
       targetPort: 5000 # Container port
       name: http
   type: ClusterIP
+=======
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-api-deployment
+  labels:
+    app: flask-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: flask-api
+  template:
+    metadata:
+      labels:
+        app: flask-api
+    spec:
+      containers:
+      - name: flask-api
+        image: your-repo/flask-api:1.0.0 # Replace with your actual Docker image
+        ports:
+        - containerPort: 5000
+          name: http-flask
+        resources:
+          requests:
+            cpu: "100m" # Request 0.1 CPU core
+            memory: "128Mi" # Request 128 Megabytes of memory
+          limits:
+            cpu: "200m" # Limit to 0.2 CPU cores
+            memory: "256Mi" # Limit to 256 Megabytes of memory
+        # Environment variables for PostgreSQL connection details can be added here
+        # For example:
+        # env:
+        #   - name: DATABASE_URL
+        #     value: "postgresql://user:password@postgresql-host:5432/database_name"
+        #   - name: FLASK_APP_SETTING
+        #     valueFrom:
+        #       secretKeyRef:
+        #         name: my-api-secrets
+        #         key: some_secret_key
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask-api-service
+  labels:
+    app: flask-api
+spec:
+  selector:
+    app: flask-api
+  ports:
+    - protocol: TCP
+      port: 80 # Service exposed port
+      targetPort: 5000 # Container port
+      name: http
+  type: ClusterIP
+>>>>>>> 915394f6a783e1daa8111e12a6419de7ee3fca4c
 ```
