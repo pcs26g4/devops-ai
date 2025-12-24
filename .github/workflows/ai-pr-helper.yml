@@ -1,0 +1,48 @@
+name: AI PR Helper
+
+on:
+  pull_request:
+    types: [opened, edited]
+
+jobs:
+  analyze-pr:
+    runs-on: ubuntu-latest
+
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Capture PR description
+        run: |
+          echo "PR_BODY<<EOF" >> $GITHUB_ENV
+          echo "${{ github.event.pull_request.body }}" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: AI PR analysis
+        run: |
+          PROMPT="You are a senior DevOps engineer.
+
+          Analyze the following Pull Request description:
+
+          $PR_BODY
+
+          Tasks:
+          1. Generate a short changelog entry
+          2. Suggest suitable PR labels
+          3. Identify potential risks"
+
+          curl -s -X POST \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$GEMINI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"contents\": [
+                {
+                  \"parts\": [
+                    {\"text\": \"$PROMPT\"}
+                  ]
+                }
+              ]
+            }"
