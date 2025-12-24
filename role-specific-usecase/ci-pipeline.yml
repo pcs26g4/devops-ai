@@ -1,0 +1,106 @@
+```yaml
+# .github/workflows/ci.yml
+
+name: CI/CD Pipeline for Flask App
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build-and-test:
+    name: Build and Test Flask App with PostgreSQL
+    runs-on: ubuntu-latest
+
+    # Define services required for the job, in this case, a PostgreSQL database.
+    services:
+      postgres:
+        image: postgres:14-alpine # Using a stable and smaller Alpine image for PostgreSQL
+        env:
+          POSTGRES_DB: test_db         # Database name for our tests
+          POSTGRES_USER: test_user     # User for the database
+          POSTGRES_PASSWORD: test_password # Password for the database user
+        ports:
+          - 5432:5432 # Expose port 5432 for the database. This is optional but good practice.
+        options: >- # Health check to ensure PostgreSQL is ready before the job starts
+          --health-cmd pg_isready -U test_user
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # Define environment variables available to all steps in this job
+    env:
+      PYTHONUNBUFFERED: 1  # Ensure Python output is unbuffered in the logs
+      FLASK_APP: app.py    # Your Flask application entry point (e.g., app.py, wsgi.py)
+      FLASK_ENV: testing   # Set Flask environment to 'testing'
+
+      # PostgreSQL connection details for the Flask application and client tools (like pg_isready)
+      PGHOST: postgres               # Hostname of the PostgreSQL service (matches the service name)
+      PGPORT: 5432                   # Port for PostgreSQL
+      PGUSER: test_user              # Username for PostgreSQL
+      PGPASSWORD: test_password      # Password for PostgreSQL
+      PGDATABASE: test_db            # Database name for PostgreSQL
+
+      # DATABASE_URL for Flask-SQLAlchemy or other ORMs that use it
+      DATABASE_URL: postgresql://${{ env.PGUSER }}:${{ env.PGPASSWORD }}@${{ env.PGHOST }}:${{ env.PGPORT }}/${{ env.PGDATABASE }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10' # Specify the Python version your application uses
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip # Path to store cached pip packages
+          key: ${{ runner.os }}-python-${{ hashFiles('**/requirements.txt') }} # Cache key based on OS and requirements file
+          restore-keys: |
+            ${{ runner.os }}-python- # Fallback cache key
+
+      - name: Install system dependencies for PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev gcc
+
+      - name: Install Python dependencies
+        # Assumes you have a requirements.txt file in your project root.
+        # If using pipenv, replace with: pipenv install --dev --skip-lock
+        run: pip install -r requirements.txt
+
+      - name: Wait for PostgreSQL to be ready
+        # Although the 'services' block has a health check, this explicit wait
+        # provides an extra layer of robustness, ensuring the database is
+        # fully ready to accept connections from the application.
+        run: |
+          echo "Waiting for PostgreSQL to accept connections..."
+          for i in $(seq 1 10); do
+            # pg_isready picks up PGHOWST, PGPORT, PGUSER, PGPASSWORD from environment
+            pg_isready && break
+            echo "PostgreSQL not ready, retrying in 5 seconds... (attempt $i/10)"
+            sleep 5
+          done
+          pg_isready || (echo "PostgreSQL did not become ready after multiple attempts" && exit 1)
+          echo "PostgreSQL is ready!"
+
+      # - name: Run database migrations (optional)
+      #   # Uncomment and adjust this step if your Flask application uses
+      #   # Flask-Migrate or similar tools to set up the database schema.
+      #   # For many testing setups, your pytest fixtures might handle schema creation/teardown.
+      #   run: flask db upgrade # Example for Flask-Migrate
+
+      - name: Run tests
+        # Assumes you have `pytest` installed (e.g., in requirements.txt)
+        # and your tests are configured to run with `pytest`.
+        # Ensure your tests connect to the database specified by DATABASE_URL.
+        run: pytest
+```
