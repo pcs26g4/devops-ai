@@ -1,0 +1,10 @@
+Step 1: Checkout repository - 5s
+Step 2: Install dependencies - 180s
+Step 3: Run unit tests - 240s
+Test test_login failed
+Re-running tests...
+Test test_login passed
+Step 4: Build application - 120s
+Step 5: Install dependencies - 175s
+Step 6: Run lint - 60s
+Pipeline completed successfully

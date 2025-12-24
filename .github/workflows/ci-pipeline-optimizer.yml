@@ -1,0 +1,51 @@
+name: CI Pipeline Optimizer
+
+on:
+  workflow_dispatch:
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read CI logs
+        id: read_logs
+        run: |
+          echo "CI_LOGS<<EOF" >> $GITHUB_ENV
+          cat ci-logs/sample-ci.log >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Analyze CI pipeline with AI
+        run: |
+          PROMPT="You are a senior DevOps engineer.
+
+          Analyze the following CI/CD pipeline logs:
+
+          $CI_LOGS
+
+          Tasks:
+          1. Identify pipeline bottlenecks
+          2. Detect flaky tests
+          3. Suggest build optimizations
+          4. Recommend caching or parallelization
+
+          Output clear bullet points."
+
+          curl -s -X POST \
+            \"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$GEMINI_API_KEY\" \
+            -H \"Content-Type: application/json\" \
+            -d \"{
+              \\\"contents\\\": [
+                {
+                  \\\"parts\\\": [
+                    {\\\"text\\\": \\\"$PROMPT\\\"}
+                  ]
+                }
+              ]
+            }\"
