@@ -1,0 +1,43 @@
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: flask-api-prod
+  namespace: argocd
+  labels:
+    environment: production
+    service: flask-api
+    app.kubernetes.io/name: flask-api
+    app.kubernetes.io/instance: flask-api-prod
+    app.kubernetes.io/component: backend
+spec:
+  project: default # It's common to use a dedicated project for production (e.g., 'production')
+
+  source:
+    repoURL: https://github.com/your-org/your-flask-app-gitops.git # Replace with your Git repository URL
+    targetRevision: HEAD # Use 'main', 'master', or a specific branch/tag, e.g., 'main'
+    path: kubernetes/production # Path within the repository to your Kubernetes manifests for production
+
+    # Assuming Kustomize is used to manage the Kubernetes manifests.
+    # If Helm charts are used, replace 'kustomize' with 'helm' and its specific options.
+    kustomize: {} # Empty kustomize block indicates Kustomize is used, but no specific options are needed here.
+
+  destination:
+    server: https://kubernetes.default.svc # Targets the in-cluster Kubernetes API server
+    namespace: flask-api-prod # The Kubernetes namespace where the application will be deployed
+
+  syncPolicy:
+    automated:
+      prune: true       # Allows ArgoCD to delete resources that are no longer defined in Git
+      selfHeal: true    # Allows ArgoCD to reconcile differences between desired state in Git and live state in cluster
+    syncOptions:
+      - CreateNamespace=true  # Automatically creates the target namespace if it does not exist
+      - ApplyOutOfSyncOnly=true # Only applies resources that are OutOfSync, preventing unnecessary updates
+      - ServerSideApply=true # Recommended for Kustomize (or Helm 3+) for better patch strategies
+    retry:
+      limit: 5 # Number of attempts to sync
+      backoff:
+        duration: 5s   # The amount of time to wait before the first retry
+        factor: 2      # Multiplier for subsequent retries (e.g., 5s, 10s, 20s)
+        maxDuration: 3m # Max time between retries
+```
